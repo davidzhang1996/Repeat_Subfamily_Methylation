@@ -9,10 +9,11 @@ rmsk_type=""
 check_white_space=True 
 
 def main():
-	create_sam()
-	create_rmsk()
-	#analyze_rmsk()
+	#create_sam()
+	parse_rmsk()
+	convert_methylation_dict()
 
+"""
 def create_sam():
 	with open ("adipose_head_400.sam", "r") as sam_file:
 		repeater=1
@@ -26,59 +27,90 @@ def create_sam():
 				if (sam_dict.has_key(id)):
 					repeater+=1
 				sam_dict[id+"."+"%s" %(repeater)]=[str(int(line_list[3])+len(line_list[9])), line_list[9]]
+"""
 
-def create_rmsk(): 
-	rmsk_dict
-	subfam_name, chrm, chrm_start, chrm_start, cons_start, cons_stop, chrm_seq, cons_seq = "", "", "", "", "", "", "", ""
-	methylation_sequence=""
+def parse_rmsk():
+	global check_white_space, complete_subfamily, line_count
+	check_white_space, complete_subfamily, line_count=True, False, 1
+	rmsk_dict={}
 
-	with open ("hg19_test4.fa.align", "r") as rmsk_file: 
-		global rmsk_type
-		global check_white_space
-
-		line_count=1
-		repeat=1
+	with open ("hg19_1000000.fa.align", "r") as rmsk_file: 
 		for line in rmsk_file: 
-			line=line.rstrip("\n")
-			line_list=line.split()
+			rsmk_dict=get_repeats_rmsk(rmsk_dict, line)
 
-			if (check_white_space==True):
-				rmsk_type=get_type(line_list, line)
-
-			if(check_white_space==False):
-				if (line_count%4==2):
-					if (line_list[0]=="Matrix"):
-						check_white_space=True
-					chrm_seq+=line_list[2]
-
-				elif(line_count%4==0):
-					if (len(line_list[0])==1):
-						line_list.remove(line_list[0])
-
-					if (abs(int(line_list[3])-int(cons_stop))<=1):
-						check_white_space=True
-					cons_seq+=line_list[2]
-				line_count+=1
-
-			if(rmsk_type=="Footer" and line_list[0]=="Matrix"):
-				if (rmsk_dict.has_key(subfam_name)):
-					repeat+=1
-				rmsk_dict[subfam_name] = [chrm, chrm_start, chrm_stop, cons_start, cons_stop, cons_seq, chrm_seq]
-				subfam_name, chrm, chrm_start, chrm_start, cons_start, cons_stop, chrm_seq, cons_seq= "", "", "", "", "", "", "", ""
-				rmsk_type=""
-
-			if(rmsk_type=="Header"):
+			if (complete_subfamily):
+				rmsk_dict=get_repeats_sam(rmsk_dict) 
+			#	rmsk_dict=calculate_methylation_levels(rmsk_dict)
+			#	update_methylation_dictionary(subfam_name, cons_start, cons_stop, methyl_seq)
+				#print rmsk_dict
+				rmsk_dict={}
 				line_count=1
+				complete_subfamily=False
 
-				if (line_list[8]!="C"):
-					subfam_name, cons_start, cons_stop = line_list[8], line_list[9], line_list[10]
-				else: 
-					subfam_name, cons_start, cons_stop = line_list[9], line_list[11], line_list[12]
+def get_repeats_sam(dictionary):
+	rmsk_dict=dictionary
+	
 
-				subfam_name, chrm, chrm_start, chrm_stop = subfam_name[:subfam_name.index("#")], line_list[4], line_list[5], line_list[6]
-				check_white_space=False
-				rmsk_type=""
-			#line_number+=1
+def get_repeats_rmsk(dictionary, string):
+	global check_white_space, complete_subfamily, line_count
+	rmsk_dict, line = dictionary, string
+
+	line=line.rstrip("\n")
+	line_list=line.split()
+
+	#print line_list 
+
+	rmsk_type, subfam_name, chrm, chrm_start, chrm_start, cons_start, cons_stop, chrm_seq, cons_seq = "", "", "", "", "", "", "", "", ""
+
+	if (check_white_space==True):
+		rmsk_type=get_type(line_list, line)
+
+	if(check_white_space==False):
+		subfamily=rmsk_dict.keys()[0]
+
+		if (line_count%4==2):
+			if (line_list[0]=="Matrix"):
+				check_white_space=True
+
+			else:
+				chrm_seq=line_list[2]
+				rmsk_dict[subfamily][6]+=chrm_seq
+
+		elif(line_count%4==0):
+			if (len(line_list[0])==1):
+				line_list.remove(line_list[0])
+
+			if(line_count==4):
+				cons_start=line_list[1]
+			cons_stop=line_list[3]	
+			cons_seq=line_list[2]
+			rmsk_dict[subfamily][5]+=cons_seq
+
+		if (len(cons_start)!=0):
+			rmsk_dict[subfamily][3] = cons_start
+
+		if (len(cons_stop)!=0):
+			rmsk_dict[subfamily][4] = cons_stop
+		line_count+=1
+		return rmsk_dict
+
+	if(rmsk_type=="Footer" and line_list[0]=="Gap_init"):
+		complete_subfamily=True
+		return rmsk_dict
+
+	if(rmsk_type=="Header"):
+
+		if (line_list[8]!="C"):
+			subfam_name = line_list[8]
+
+		else: 
+			subfam_name = line_list[9]
+
+		subfam_name, chrm, chrm_start, chrm_stop = subfam_name[:subfam_name.index("#")], line_list[4], line_list[5], line_list[6]
+		rmsk_dict[subfam_name] = [chrm, chrm_start, chrm_stop, cons_start, cons_stop, cons_seq, chrm_seq]
+		check_white_space=False
+		return rmsk_dict
+	#line_number+=1
 
 
 def get_type(line_list, line):
@@ -89,6 +121,8 @@ def get_type(line_list, line):
 
 	elif (len(line_list)!=0 and line[0]!=" " and line_list[0]!="Matrix" and line[0]!="C"): 
 		return "Header"
+
+
 
 # Input conditions: rmsk_dict that has, how each subfamily, the consensus sequence 
 # appended to the item list.
