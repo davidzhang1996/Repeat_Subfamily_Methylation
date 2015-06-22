@@ -4,18 +4,19 @@ V1: 6/16/15
 """
 import math 
 
-sam_dict, methylation_dict={}, {}
+methylation_dict={}
 rmsk_type=""
 check_white_space=True 
 
 def main():
-	#create_sam()
-	parse_rmsk()
+	sam_dict=create_sam()
+	parse_rmsk(sam_dict)
 	convert_methylation_dict()
 
-"""
+
 def create_sam():
-	with open ("adipose_head_400.sam", "r") as sam_file:
+	sam_dict={}
+	with open ("adipose_head.sam", "r") as sam_file:
 		repeater=1
 		for line in sam_file: 
 			line=line.rstrip("\n")
@@ -23,13 +24,16 @@ def create_sam():
 			id=""
 
 			if(line_list[0][0]!="@" and int(line_list[1])<=511 and int(line_list[1])>=256):
-				id=line_list[2][3:len(line_list[2])]+line_list[3]
+				id=line_list[2][3:len(line_list[2])]+"|" +line_list[3]
 				if (sam_dict.has_key(id)):
 					repeater+=1
 				sam_dict[id+"."+"%s" %(repeater)]=[str(int(line_list[3])+len(line_list[9])), line_list[9]]
-"""
 
-def parse_rmsk():
+	return sam_dict
+
+
+def parse_rmsk(dictionary):
+	sam_dict=dictionary
 	global check_white_space, complete_subfamily, line_count
 	check_white_space, complete_subfamily, line_count=True, False, 1
 	rmsk_dict={}
@@ -39,17 +43,116 @@ def parse_rmsk():
 			rsmk_dict=get_repeats_rmsk(rmsk_dict, line)
 
 			if (complete_subfamily):
-				rmsk_dict=get_repeats_sam(rmsk_dict) 
+				rmsk_dict=get_repeats_sam(rmsk_dict, sam_dict) 
 			#	rmsk_dict=calculate_methylation_levels(rmsk_dict)
 			#	update_methylation_dictionary(subfam_name, cons_start, cons_stop, methyl_seq)
-				#print rmsk_dict
+
 				rmsk_dict={}
 				line_count=1
 				complete_subfamily=False
 
-def get_repeats_sam(dictionary):
-	rmsk_dict=dictionary
+def get_repeats_sam(rmsk_dictionary, sam_dictionary):
+	rmsk_dict=rmsk_dictionary
+	sam_dict=sam_dictionary 
+
+	sam_list=[]
+
+	for item in sam_dict: 
+		sam_list.append(item)
+
+	sam_list=sort_sam_list(sam_list)
+	rmsk_dict=valid_sam_repeats(rmsk_dict, sam_dict, sam_list)
+	return sam_list
+
+def valid_sam_repeats(rmsk_dictionary, sam_dictionary, sam): 
+	rmsk_dict, sam_dict, sam_list = rmsk_dictionary, sam_dictionary, sam
+	chrm, chrm_start, chrm_stop = rmsk_dict[0], rmsk_dict[1], rmsk_dict[2]
 	
+	start_position=search_sam(sam_list, chrm, chrm_start,0)
+	stop_position=search_sam(sam_list, chrm,chrm_stop,0)
+
+	for index in xrange(start_position, stop_position+1): 
+		rmsk_dict.append(sam_dict[sam_list[index]][1])
+
+	return rmsk_dict
+
+def search_sam(searchList, chromosome, chromosome_position, boundary_position):
+	sam_list, chrm, chrm_pos, bound_pos = searchList, chromosome, chromsome_position, boundary_position
+	midList=len(sam_list)/2
+	separatorIndex=sam_list[midList].index("|")
+	sam_chrm=sam_list[midList][0:separatorIndex]
+	sam_chrm_pos=int(sam_list[midList][separatorIndex:len(sam_list[midList])-2])
+
+	rightHalf=sam_list[midList:]
+	leftHalf=sam_list[:midList]
+
+	if (len(searchList)>1): 
+		if (chrm<sam_chrm):
+			bound_pos+=search_sam(sam_list[:midList], chrm, chrm_pos, 0)
+
+		if (chrm>sam_chrm):
+			search_sam(sam_list[midList:], chrm, chrm_pos, midList)
+
+	return boundary
+
+
+
+def sort_sam_list(sam):
+	chrm, chrmPos, lhSepInd, rhSepInd = "", "", "", ""
+	aList=sam
+	if (len(aList)>1):  
+		midList=len(aList)/2
+		rightHalf=sam[midList:]
+		leftHalf=sam[:midList]
+
+		rhLength=len(rightHalf) 
+		lhLength=len(leftHalf)
+
+		rightHalf=sort_sam_list(rightHalf)
+		leftHalf=sort_sam_list(leftHalf)
+
+		print "Right half:", rightHalf
+		print "Left half:", leftHalf
+
+		i=0
+		j=0
+		k=0
+
+		while (i<lhLength and j<rhLength): 
+			lhSepInd=leftHalf[i].index("|")
+			rhSepInd=rightHalf[j].index("|")
+
+			#print leftHalf[i][:lhSepInd]
+			if (leftHalf[i][:lhSepInd]<rightHalf[j][:rhSepInd]):
+				aList[k]=leftHalf[i]
+				i+=1
+			elif (leftHalf[i][:lhSepInd]>rightHalf[j][:rhSepInd]): 
+				aList[k]=rightHalf[j]
+				j+=1
+
+			elif (leftHalf[i][:lhSepInd]==rightHalf[j][:rhSepInd]):
+				#print "equal"
+				if (leftHalf[i][lhSepInd+1:]<rightHalf[j][rhSepInd+1:]):
+					aList[k]=leftHalf[i]
+					i+=1
+				else: 
+					aList[k]=rightHalf[j]
+					j+=1
+			k+=1 
+
+		while (i<lhLength):
+
+			aList[k]=leftHalf[i]
+			k+=1
+			i+=1
+
+		while (j<rhLength): 
+			aList[k]=rightHalf[j]
+			k+=1 
+			j+=1 
+
+	#print "Merged List:", aList
+	return aList
 
 def get_repeats_rmsk(dictionary, string):
 	global check_white_space, complete_subfamily, line_count
@@ -106,7 +209,7 @@ def get_repeats_rmsk(dictionary, string):
 		else: 
 			subfam_name = line_list[9]
 
-		subfam_name, chrm, chrm_start, chrm_stop = subfam_name[:subfam_name.index("#")], line_list[4], line_list[5], line_list[6]
+		subfam_name, chrm, chrm_start, chrm_stop = subfam_name[:subfam_name.index("#")], line_list[4][3:len(line_list[4])], line_list[5], line_list[6]
 		rmsk_dict[subfam_name] = [chrm, chrm_start, chrm_stop, cons_start, cons_stop, cons_seq, chrm_seq]
 		check_white_space=False
 		return rmsk_dict
@@ -167,6 +270,10 @@ def analyze_rmsk():
 		methylation_dict[key]=methylation_level_list
 		methylation_sequence=""
 
-"""	
-main()
+"""
+sam_dict=create_sam()
+rmsk_dict={}
+#print sam_dict
+print get_repeats_sam(rmsk_dict, sam_dict)	
+#main()
 #analyze_rmsk()
