@@ -25,14 +25,20 @@ def get_subfam_consensus_seqs():
 		for line in repeats_file: 
 			line=line.rstrip("\n")
 			line_list=line.split()
-			#print line_list
 
 			if (line_list[0]=="ID"):
 				sequence=False
 				subfam_name=line_list[1]
 				if (addToDict): 
 					methylation_dict[subfam_name]=[seq]
-					subfam_name, seq = "",""
+					methylation_sequence=""
+					for iterations in xrange(len(seq)):
+						if (seq[iterations]!="C" or seq[iteration]!="c"):
+							methylation_sequence+="-"
+						else: 
+							methylation_sequence+="0/0"
+					methylation_dict[subfam_name].append(methylation_sequence)
+					subfam_name, seq, methylation_sequence = "", "", ""
 
 				addToDict=True
 				
@@ -80,11 +86,49 @@ def parse_rmsk(dictionary):
 			if (complete_subfamily):
 				rmsk_dict=get_repeats_sam(rmsk_dict, sam_dict) 
 				rmsk_dict=calculate_methylation_levels(rmsk_dict)
-			#	update_methylation_dictionary(subfam_name, cons_start, cons_stop, methyl_seq)
+
+				subfam_name, cons_start, cons_stop, methyl_seq = rmsk_dict.keys()[0], rmsk_dict[3], rmsk_dict[4], rmsk_dict[7]
+				update_methylation_dictionary(subfam_name, cons_start, cons_stop, methyl_seq)
 
 				rmsk_dict.clear()
 				line_count=1
 				complete_subfamily=False
+
+def update_methylation_dictionary(name, start, stop, seq):
+	subfam_name, cons_start, cons_stop, methyl_seq = name, start, stop, seq
+	repeat_seq=methylation_dict[subfam_name][0]
+
+	for bp in xrange(len(methyl_seq)):
+		if (methyl_seq[bp]==int and methyl_seq[bp]==repeat_seq[bp+cons_start]):
+			methylation_dict[subfam_name][1][bp+cons_start]="%s" % (int(repeat_seq[bp+cons_start])+int(methyl_seq[bp])
+
+
+
+def calculate_methylation_levels(rmsk_dictionary):
+	rmsk_dict=rmsk_dictionary
+	key=rmsk_dict.keys()[0]
+	total, methyl=0, 0
+	methylation_sequence=""
+	cons_seq, ref_seq = rmsk_dict[key][5], rmsk_dict[key][6]
+
+	for bp in xrange(len(cons_seq)): 
+		if (cons_seq[bp]=="C" or cons_seq=="c" and cons_seq[bp]==ref_seq[bp]):
+			for read in xrange(7,len(rmsk_dict[key])):
+				if (rmsk_dict[key][read][bp]=="C" or rmsk_dict[key][read][bp]=="c" or rmsk_dict[key][read][bp]=="T" or rmsk_dict[key][read][bp]=="t"):
+					total+=1 
+					if (rmsk_dict[key][read][bp]=="T" or rmsk_dict[key][read][bp]=="t"):
+						methyl+=1 
+
+			methylation_sequence+="%s/%s" %(methyl, total)			
+			total=0
+			methyl=0
+			
+		else: 
+			methylation_sequence+="-"
+	rmsk_dict[key]=rmsk_dict[key][0:7]
+	rmsk_dict[key].append(methylation_sequence)
+	return rmsk_dict
+
 
 def get_repeats_sam(rmsk_dictionary, sam_dictionary):
 	rmsk_dict=rmsk_dictionary
@@ -111,7 +155,9 @@ def valid_sam_repeats(rmsk_dictionary, sam_dictionary, sam):
 	stop_position=search_sam(sam_list, chrm,chrm_stop,0)
 
 	for index in xrange(start_position, stop_position+1): 
-		rmsk_dict.append(sam_dict[sam_list[index]][1])
+		chrm=sam_list[index][sam_list[index].index("|")+1:] 
+		sequence=chrm+"|"+sam_dict[sam_list[index][1]]
+		rmsk_dict.append(sequence)
 	rmsk_dict=reformat_appended_sam(rmsk_dict) 
 
 	return rmsk_dict
@@ -122,18 +168,27 @@ def reformat_appended_sam(rmsk_dictionary):
 	for read in xrange(7, len(rmsk_dict[key])): 
 		positionSamRead=0 
 		reformattedSequence=""
+		separatorIndex=rmsk_dict[key][read].index("|")
+		chrm_start, chrm_stop, chrm_seq=int(rmsk_dict[key][1]), int(rmsk_dict[key][2]), rmsk_dict[key][6]
+		sam_start= int(rmsk_dict[key][read][:separatorIndex])
+		sam_stop= int(sam_start+len(rmsk_dict[key][read][separatorIndex+1:]))
+		sam_sequence = rmsk_dict[key][read][separatorIndex+1:]
+		sam_length=len(sam_sequence)
 
-		for bp in xrange(len(rmsk_dict[key])[6]):
-			if (rmsk_dict[key][6][bp]=="-"):
+		for bp in xrange(chrm_stop-chrm_start):
+			if (bp<(sam_start-chrm_start) or chrm_seq[bp]=="-"):
 				reformattedSequence+="-"
-			elif (positionSamRead<len(rmsk_dict[key][read])):
-				reformattedSequence+=rmsk_dict[key][read][positionSamRead]
+			elif (chrm_seq[bp]!="-" and positionSamRead<sam_length):
+				reformattedSequence+=sam_sequence[positionSamRead]
 				positionSamRead+=1
+			elif (bp> (sam_start-chrm_start+sam_length)): 
+				reformattedSequence+="-"
 
 		rmsk_dict[key][read]=reformattedSequence
 
 	return rmsk_dict
 
+print reformat_appended_sam(rmsk_dict)
 
 def search_sam(searchList, chromosome, chromosome_position, boundary_position):
 	sam_list, chrm, chrm_pos, bound_pos = searchList, chromosome, chromosome_position, boundary_position
@@ -312,45 +367,6 @@ def get_type(line_list, line):
 # 
 # Output conditions: rmsk_dict with methylation patterns for all C's  
 
-"""
-rmsk_dict={
-			"example1": ['0', '0', '0', '0', '0', "ACTGCA-CGC", "AGTCCAAGTC", "GTT--AATGT", "---GTAATGT", "ATTCC------"],
-			"example2": ['0', '0', '0', '0', '0', "ATTC-CACC-GA", "CTACATGTC---", "--ATTGCCTGAC", "ATTACGATTACG", "TATCA-GGCGTA"]
-}
-"""
-"""
-
-def analyze_rmsk():
-	for key in rmsk_dict:
-		methyl_seq_list, methylation_level_list = [], []
-		total_methylation, total_reads, methylation_composite = 0.0, 0.0, 0.0 
-
-		for index in xrange(5, len(rmsk_dict[key])):
-			methyl_seq_list.append(rmsk_dict[key][index])
-
-		#print methyl_seq_list
-		for index1 in xrange(len(methyl_seq_list[0])): 
-			#print index1
-			if (methyl_seq_list[0][index1]!="-"): 	
-				if (methyl_seq_list[0][index1]=="C" or methyl_seq_list[0][index1]=="c"):
-					for index2 in xrange(1,len(methyl_seq_list)):
-						if (methyl_seq_list[index2][index1]=="C" or methyl_seq_list[index2][index1]=="c" or methyl_seq_list[index2][index1]=="T" or methyl_seq_list[index2][index1]=="t"):
-							total_reads+=1
-						if (methyl_seq_list[index2][index1]=="T" or methyl_seq_list[index2][index1]=="t"):
-							total_methylation+=1 
-
-					if (total_reads!=0.0):
-						methylation_composite=total_methylation/total_reads
-						methylation_level_list.append("%.4s"%(methylation_composite))
-						total_reads, total_methylation = 0.0, 0.0
-				else: 
-					methylation_level_list.append("-")
-
-
-		methylation_dict[key]=methylation_level_list
-		methylation_sequence=""
-
-"""
 sam_dict=create_sam()
 rmsk_dict={}
 #print sam_dict
