@@ -19,6 +19,8 @@ errors and are not factored into the calculation.
 
 """
 import math 
+import time
+start_time = time.time()
 
 rmsk_type=""
 check_white_space=True 
@@ -57,7 +59,7 @@ def main():
 def get_subfam_consensus_seqs(methyl_dict):
 	methylation_dict=methyl_dict
 
-	with open ("repeat_consensus_seqs_1000.txt", "r") as repeats_file:
+	with open ("repeat_consensus_seqs.txt", "r") as repeats_file:
 		subfam_name, cons_position = "", 1  
 		sequence=False
 		for line in repeats_file: 
@@ -102,7 +104,7 @@ def get_subfam_consensus_seqs(methyl_dict):
 
 def create_sam():
 	sam_dict={}
-	with open ("test_5.sam", "r") as sam_file:
+	with open ("adrenal_gland_100000000_filtered_forward.sam", "r") as sam_file:
 		repeater=1
 		for line in sam_file: 
 			line=line.rstrip("\n")
@@ -177,11 +179,14 @@ def parse_rmsk(sam_dict, methyl_dict):
 	check_white_space, complete_subfamily, line_count=True, False, 1
 	rmsk_dict={}
 
-	with open ("hg19_328.fa.align", "r") as rmsk_file: 
+	with open ("hg19_154.fa.align", "r") as rmsk_file: 
 		for line in rmsk_file: 
 			rsmk_dict=get_repeats_rmsk(rmsk_dict, line)
 
 			if (complete_subfamily):
+				for item in rmsk_dict:
+					print item
+					print rmsk_dict[item]
 				rmsk_dict=get_repeats_sam(rmsk_dict, sam_dict) 
 				rmsk_dict=calculate_methylation_levels(rmsk_dict)
 				methylation_dict=update_methylation_dictionary(rmsk_dict, methylation_dict)
@@ -207,7 +212,7 @@ def convert_methylation_dict(methyl_dict):
 	methylation_dict=methyl_dict
 	for key in methylation_dict: 
 		methyl=methylation_dict[key]
-		print key
+		
 		for methyl_bp in xrange(len(methyl)):
 			methyl_loc_separator=methyl[methyl_bp].index("|")
 			methyl_tot_separator=methyl[methyl_bp].index("/")
@@ -217,7 +222,10 @@ def convert_methylation_dict(methyl_dict):
 			total=float(methyl[methyl_bp][methyl_tot_separator+1:])
 
 			if (total!=0.0):
+				print key
 				print position + "\t" + "%s" %(methyl_number/total)
+
+	print("--- %s seconds ---" % (time.time() - start_time))
 
 #=========================
 # 2a
