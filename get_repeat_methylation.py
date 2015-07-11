@@ -36,6 +36,7 @@ check_white_space=True
 # in order to estimate a methylation level for the cytosines. It then prints the position of each cytosine 
 # in the consensus sequence and the percent methylation level. 
 
+
 def main():
 	methylation_dict={}
 	
@@ -59,9 +60,9 @@ def main():
 def get_subfam_consensus_seqs(methyl_dict):
 	methylation_dict=methyl_dict
 
-	with open ("repeat_consensus_seqs.txt", "r") as repeats_file:
+	with open ("repeat_consensus_seqs_987.txt", "r") as repeats_file:
 		subfam_name, cons_position = "", 1  
-		sequence=False
+		sequence=False, 1
 		for line in repeats_file: 
 			line=line.rstrip("\n")
 			line_list=line.split()
@@ -70,18 +71,29 @@ def get_subfam_consensus_seqs(methyl_dict):
 				sequence=False
 				subfam_name=line_list[1]
 				cons_position=1
-				methylation_dict[subfam_name]=[]
+				methylation_dict[subfam_name]=[[],[]]
 
 			if (sequence==True):
 				for bp_block in xrange(len(line_list)-1):
 					for bp in line_list[bp_block]: 
 						if (bp=="C" or bp=="c"):
-							methylation_dict[subfam_name].append("%s|0/0" % (cons_position))
+							methylation_dict[subfam_name][0].append("%s|0/0" % (cons_position))
+						if (bp=="G" or bp=="g"):
+							methylation_dict[subfam_name][1].append("%s|0/0" % (cons_position))
 						cons_position+=1
+
+			if (line_list[0]=="//"):
+				reverse=[]
+				for cons_location in xrange(len(methylation_dict[subfam_name][1])-1, -1, -1): 
+					cons_bp=int(methylation_dict[subfam_name][1][cons_location][0:methylation_dict[subfam_name][1][cons_location].index("|")])
+					reverse.append("%s|0/0" %(cons_position-cons_bp+1))
+				methylation_dict[subfam_name][1]= reverse
+				reverse= []
 
 			if (line_list[0]=="SQ"): 
 				sequence=True
-	return methylation_dict
+
+	return methylation_dict 
 
 #==================================================
 # 2
@@ -112,11 +124,8 @@ def create_sam():
 			key, location, sam_seq, chrm, chrm_start, chrm_stop = "", "", "", "", "", ""
 			value=[]
 
-			if(line_list[0][0]!="@" and int(line_list[1])<=511 and int(line_list[1])>=256):
+			if(line_list[0][0]!="@" and (int(line_list[1])==256 or int(line_list[1])>=272)):
 				sam_seq, chrm, chrm_start= line_list[9], line_list[2][3:len(line_list[2])], line_list[3]
-
-				if (int(line_list[1])<=511 and int(line_list[1])>=272): 
-					sam_seq=reverse_complement(line_list[9])
 
 				chrm_stop= "%s" %(int(chrm_start)+len(sam_seq)-1)
 
@@ -126,13 +135,19 @@ def create_sam():
 				key=chrm+"|"+chrm_start+"~"+chrm_stop
 				if (sam_dict.has_key(key+"."+"%s" %(repeater))):
 					repeater+=1
-				sam_dict[key+"."+"%s" %(repeater)]=[]
+				key=key+"."+"%s" %(repeater)
+				sam_dict[key]=[]
+
+				if (int(line_list[1]==256)):
+					sam_dict[key].append("F")
+
+				elif (int(line_list[1])==272): 
+					sam_dict[key].append("C")
 
 				for index in xrange(len(sam_seq)):
 					location=""
 
-					if (sam_seq[index]=="C" or sam_seq[index]=="c" or sam_seq[index]=="T" or sam_seq[index]=="t"):
-						location= "%s|%s" %(index+int(chrm_start), sam_seq[index].upper())
+					location= "%s|%s" %(index+int(chrm_start), sam_seq[index].upper())
 
 					if (location!=""):
 						sam_dict[key+"."+"%s" %(repeater)].append(location)
@@ -174,26 +189,17 @@ def create_sam():
 rmsk_dict={}
 
 def parse_rmsk(sam_dict, methyl_dict):
-	sam_dict, methylation_dict=sam_dict, methyl_dict
-	global check_white_space, complete_subfamily, line_count
-	check_white_space, complete_subfamily, line_count=True, False, 1
+	rmsk_type, line_count, complement, complete_subfamily= "Header", 1, False, False
 	rmsk_dict={}
 
 	with open ("hg19_154.fa.align", "r") as rmsk_file: 
 		for line in rmsk_file: 
-			rsmk_dict=get_repeats_rmsk(rmsk_dict, line)
+			rsmk_dict, rmsk_type, line_count, complement, complete_subfamily = get_repeats_rmsk(rmsk_dict, line, rmsk_type, line_count, complement, complete_subfamily) #3a
 
 			if (complete_subfamily):
-				for item in rmsk_dict:
-					print item
-					print rmsk_dict[item]
-				rmsk_dict=get_repeats_sam(rmsk_dict, sam_dict) 
-				rmsk_dict=calculate_methylation_levels(rmsk_dict)
-				methylation_dict=update_methylation_dictionary(rmsk_dict, methylation_dict)
-
-				rmsk_dict.clear()
-				line_count=1
-				complete_subfamily=False
+				rmsk_dict=get_repeats_sam(rmsk_dict, sam_dict) #3b
+				rmsk_dict=calculate_methylation_levels(rmsk_dict) #3c
+				methylation_dict=update_methylation_dictionary(rmsk_dict, methylation_dict) #3d
 
 		return methylation_dict
 
@@ -269,39 +275,40 @@ def reverse_complement(sequence):
 #				the line based on the first couple of characters in the file. 
 
 
-def get_repeats_rmsk(dictionary, string):
-	global check_white_space, complete_subfamily, line_count
-	rmsk_dict, line = dictionary, string
+def get_repeats_rmsk(rmsk_dictionary, line_string, rmsk_type_string, line_count_int, complement_bool, complete_subfamily_bool, line_number_int):
+	rmsk_dict, line, rmsk_type, line_count, complement, complete_subfamily, line_number = rmsk_dictionary, line_string, rmsk_type_string, line_count_int, complement_bool, complete_subfamily_bool, line_number_int
 
 	line=line.rstrip("\n")
 	line_list=line.split()
 
-	rmsk_type, subfamily, chrm, chrm_start, chrm_start, cons_start, cons_stop, chrm_seq, cons_seq = "", "", "", "", "", "", "", "", ""
-	info_list, cons_positions_list, ref_positions_list=[],[],[]
-
-	if (check_white_space==True):
-		rmsk_type=get_type(line_list, line)
-
-	if(check_white_space==False):
+	if (rmsk_type=="Sequence"): 
+		cons_start, cons_stop, chrm_seq, cons_seq_reverse, cons_seq_forward = "","","","",""
 		subfamily=rmsk_dict.keys()[0]
 
 		if (line_count%4==2):
 			if (line_list[0]=="Matrix"):
-				check_white_space=True
-
-			else:
+				complete_subfamily=True
+				rmsk_type="Footer"
+				
+			else: 
 				chrm_seq=rmsk_dict[subfamily][1]+line_list[2]
 				rmsk_dict[subfamily][1]=chrm_seq
 
-		elif(line_count%4==0):
+		elif(line_count%4==0 and rmsk_type!="Footer"):
 			if (len(line_list[0])==1):
 				line_list.remove(line_list[0])
 
 			if(line_count==4):
 				cons_start=line_list[1]
 
-			cons_stop, cons_seq=line_list[3], rmsk_dict[subfamily][2]+line_list[2]
-			rmsk_dict[subfamily][2]= cons_seq	
+			if (complement): 
+				cons_seq_reverse= rmsk_dict[subfamily][3]+line_list[2]
+				rmsk_dict[subfamily][3]=cons_seq_reverse
+			else: 
+				cons_seq_forward=  rmsk_dict[subfamily][2]+line_list[2]
+				rmsk_dict[subfamily][2]=cons_seq_forward
+			
+			cons_stop=line_list[3]	
 
 		if (len(cons_start)!=0):
 			rmsk_dict[subfamily][0][3] = cons_start
@@ -309,51 +316,70 @@ def get_repeats_rmsk(dictionary, string):
 		if (len(cons_stop)!=0):
 			rmsk_dict[subfamily][0][4] = cons_stop
 		line_count+=1
-		return rmsk_dict
 
-	if(rmsk_type=="Footer" and line_list[0]=="Gap_init"):
-		subfamily=rmsk_dict.keys()[0]
-		cons_seq, ref_seq, cons_start, ref_start = rmsk_dict[subfamily][1], rmsk_dict[subfamily][2], int(rmsk_dict[subfamily][0][3]), int(rmsk_dict[subfamily][0][1])
-		
-		rmsk_dict[subfamily][1]=[]
-		rmsk_dict[subfamily][2]=[]  
+		return rmsk_dict, rmsk_type, line_count, complement, complete_subfamily
 
-		cons_position=cons_start
-		ref_position=ref_start
+	if (rmsk_type=="Footer" and len(line)!=0):
+		if (line_list[0]=="Transitions"):
+			subfamily=rmsk_dict.keys()[0]
+			ref_seq, cons_seq, cons_start, cons_remaining, ref_start, complement = rmsk_dict[subfamily][1], rmsk_dict[subfamily][2], int(rmsk_dict[subfamily][0][3]), int (rmsk_dict[subfamily][0][5]), int(rmsk_dict[subfamily][0][1]), rmsk_dict[subfamily][0][6]
+			cons_positions_list, ref_positions_list=[], []
 
-		for index in xrange(len(cons_seq)):
-			if (cons_seq[index]==ref_seq[index] and (cons_seq[index]=="C" or cons_seq[index]=="c")):
-				cons_positions_list.append(cons_position)
-				ref_positions_list.append(ref_position)
+			rmsk_dict[subfamily][1]=[]
+			rmsk_dict[subfamily][2]=[]  
 
-			if (cons_seq[index]!="-"):
-				cons_position+=1
+			cons_position=cons_start
+			ref_position=ref_start
 
-			if (ref_seq[index]!="-"):
-				ref_position+=1
+			for index in xrange(len(ref_seq)):
+				if (ref_seq[index]==cons_seq[index]):
+					if (cons_seq[index]=="C" or cons_seq[index]=="c"):
+						cons_positions_list.append("%s|C" %(cons_positions))
+						ref_positions_list.append("%s|C" %(ref_positions))
 
-		complete_subfamily=True
-		rmsk_dict[subfamily][2]=ref_positions_list
-		rmsk_dict[subfamily][1]=cons_positions_list
+					elif (cons_seq[index]=="G" or cons_seq[index]=="g"):
+						cons_positions_list.append("%s|G" % (cons_positions))
+						ref_positions_list.append("%s|G" %(ref_positions))
 
-		return rmsk_dict
+				if (complement): 
+					cons_position-=1 
+				else: 
+					cons_position+=1
 
-	if(rmsk_type=="Header"):
+			rmsk_dict[subfamily][1], rmsk_dict[subfamily][2], = ref_positions_list, cons_positions_list
+			return rmsk_dict, rmsk_type, line_count, complement, complete_subfamily
+
+		elif (line_list[0]=="Gap_init"):
+			rmsk_type, line_count, complement, complete_subfamily="Header", 1, False, False 	
+			rmsk_dict.clear()
+			return rmsk_dict, rmsk_type, line_count, complement, complete_subfamily
+		else: 
+			return rmsk_dict, rmsk_type, line_count, complement, complete_subfamily		
+
+
+	if(rmsk_type=="Header" and len(line)!=0):
 		if (line_list[8]!="C"):
 			subfam_name = line_list[8]
+			cons_remaining= line_list[11][1:len(line_list[11])-1]
+			
 		else: 
+			complement=True 
 			subfam_name = line_list[9]
+			cons_remaining= line_list[10][1:len(line_list[10])-1]
 
-		subfamily, chrm, chrm_start, chrm_stop, cons_start, cons_stop = subfam_name[:subfam_name.index("#")], line_list[4][3:len(line_list[4])], line_list[5], line_list[6], "", ""
+		subfamily, chrm, chrm_start, chrm_stop, cons_start, cons_stop, chrm_seq, cons_seq = subfam_name[:subfam_name.index("#")], line_list[4][3:len(line_list[4])], line_list[5], line_list[6], "", "", "", ""
 
 		if (len(chrm)==1):
 			chrm="0"+chrm
 
-		info=[chrm, chrm_start, chrm_stop, cons_start, cons_stop]
+		info=[chrm, chrm_start, chrm_stop, cons_start, cons_stop, cons_remaining, complement]
 
 		rmsk_dict[subfamily] = [info, chrm_seq, cons_seq]
-		check_white_space=False
-		return rmsk_dict
+		rmsk_type="Sequence"
+		return rmsk_dict, rmsk_type, line_count, complement, complete_subfamily
+
+	elif(rmsk_type=="Header" and len(line)==0):
+		return rmsk_dict, rmsk_type, line_count, complement, complete_subfamily
 
 #=========================
 # 3b
@@ -385,8 +411,8 @@ def get_repeats_sam(rmsk_dictionary, sam_dictionary):
 	for item in sam_dict: 
 		sam_list.append(item)
 
-	sam_list=sort_sam_list(sam_list)
-	rmsk_dict=valid_sam_repeats(rmsk_dict, sam_dict, sam_list)
+	sam_list=sort_sam_list(sam_list) #3b i
+	rmsk_dict=valid_sam_repeats(rmsk_dict, sam_dict, sam_list) #3b ii
 	return rmsk_dict
 
 #========================
@@ -405,15 +431,29 @@ def get_repeats_sam(rmsk_dictionary, sam_dictionary):
 def calculate_methylation_levels(rmsk_dictionary):
 	rmsk_dict=rmsk_dictionary
 	key=rmsk_dict.keys()[0]
-	total, methyl=0, 0
-	methylation_sequence=[]
+	total, methyl, location=0, 0, 0
+	methylation_sequence_forward, methylation_sequence_reverse=[], []
 	ref_pos_list=rmsk_dict[key][1]
+	cons_remaining, ref_complement=rmsk_dict[0][6], rmsk_dict[0][5]
 	
 	for ref_pos in xrange(len(ref_pos_list)):
 		for read in xrange(3, len(rmsk_dict[key])): 
 			sam_pos_list=rmsk_dict[key][read]
-			for sam_pos in xrange(len(sam_pos_list)): 
-				separatorIndex=sam_pos_list[sam_pos].index("|")
+			sam_strang=sam_pos_list[0]
+			for sam_pos in xrange(2, len(sam_pos_list)): 
+				separatorIndexSam, separatorIndexRef = sam_pos_list[sam_pos].index("|"), res_pos_list[re_pos].index("|")
+				sam_chrm_pos, ref_chrm_pos, sam_chrm_bp, ref_chrm_bp = sam_pos_list[sam_pos][0:separatorIndexSam], ref_pos_list[ref_pos][0:separatorIndexRef], sam_pos_list[sam_pos][separatorIndexSam+1:], ref_pos_list[ref_pos][separatorIndexRef]
+				
+				if (complement and sam_strand="C"):
+					if ((sam_chrm_bp=="A" or sam_chrm_bp=="G") and (ref_chrm_bp=="A") and ref_chrm_pos==sam_chrm_pos):
+						total+=1 
+						if (sam_chrm_bp=="G"): 
+							methyl+=1
+					0
+
+				elif (complement and sam_strand="F"):
+				elif (not complement and sam_strand="F"):
+				elif (not complement and sam_strand="C"):
 				if (ref_pos_list[ref_pos]==int(sam_pos_list[sam_pos][0:separatorIndex]) and (sam_pos_list[sam_pos][separatorIndex+1:]=="C" or sam_pos_list[sam_pos][separatorIndex+1:]=="T")): 
 					total+=1 
 					if (sam_pos_list[sam_pos][separatorIndex+1:]=="T"):
@@ -452,6 +492,7 @@ def update_methylation_dictionary(rmsk, methyl_dict):
 			methyl=methylation_dict[key]
 			methyl_loc_separator, methyl_tot_separator=methyl[methyl_bp].index("|"), methyl[methyl_bp].index("/")
 			methyl_loc, methyl_methyl, methyl_total = methyl[methyl_bp][0:methyl_loc_separator], methyl[methyl_bp][methyl_loc_separator+1:methyl_tot_separator], methyl[methyl_bp][methyl_tot_separator+1:]
+			
 			if (rmsk_loc==methyl_loc):
 				methyl= int(rmsk_methyl)+int (methyl_methyl)
 				total=int(rmsk_total)+ int(methyl_total)
@@ -461,21 +502,36 @@ def update_methylation_dictionary(rmsk, methyl_dict):
 
 #============
 # 3a i
-# Inputs:		1: A list of all the elements of the line of the rmsk file. 
-#				2: The line itself 
+# Inputs:		1: An input list you want to reverse the elements of
 #
-# Outputs: 		The type of the line; either "Footer" or "Header"
+# Outputs: 		The input list with its elements reversed
 #
-# Procedure:	This is a low level method that determines the type of the line based on its first few characters
+# Procedure:	This is a low level method that takes the last element of the input list and appends it as the first 
+#				element of the output list, and so on and so forth
 
-def get_type(line_list, line):
-	global rmsk_type
+def reverse (input_list):
+	output_list=[]
+	for index in xrange(len(input_list)-1, -1, -1): 
+		output_list.append(input_list[index])
+	return output_list
 
-	if (len(line_list)!=0 and (line_list[0]=="Matrix" or line_list[0]=="Kimura" or line_list[0]=="Transitions" or line_list[0]=="Gap_init")):
-		return "Footer"
 
-	elif (len(line_list)!=0 and line[0]!=" " and line_list[0]!="Matrix" and line[0]!="C"): 
-		return "Header"
+
+#============
+#3a ii 
+# Inputs:		1: An input list that contains the positions of the cytosines in a sequence
+
+# Output: 		A list that contains the list of the cytosines in the reverse complement of a sequence 
+
+# Procedure: 	This is a low level method that takes a position of a cytosine in a sequence, and subtracts the position
+#				from the length of the sequence plus 1. 
+
+def reverse_complement(input_list, end_positions_int):
+	output_list=[]
+	for index in xrange (len(input_list)-1, -1, -1): 
+		output_list.append(input_list[index]-end_positions_int+1)
+	output_list=reverse(output_list)
+	return output_list
 
 #============
 # 3b i
@@ -484,6 +540,7 @@ def get_type(line_list, line):
 # Outputs: 		The sam list ordered in alphanumerical order 
 #
 # Procedure: 	This is a low level method that uses a merge sort to order the elements of the sam list 
+
 def sort_sam_list(sam):
 	chrm, chrmPos, lhSepInd, rhSepInd = "", "", "", ""
 	aList=sam
@@ -555,7 +612,7 @@ def valid_sam_repeats(rmsk_dictionary, sam_dictionary, sam):
 	rmsk_key=rmsk_dict.keys()[0]
 	chrm, chrm_start, chrm_stop = rmsk_dict[rmsk_key][0][0], rmsk_dict[rmsk_key][0][1], rmsk_dict[rmsk_key][0][2]
 	
-	start_position=search_sam(sam_list, chrm, chrm_start,0, "Start")
+	start_position=search_sam(sam_list, chrm, chrm_start,0, "Start") # 3b ii a 
 	stop_position=search_sam(sam_list, chrm,chrm_stop,0, "Stop")
 
 	for index in xrange(start_position, stop_position+1): 
@@ -639,3 +696,4 @@ def search_sam(searchList, chromosome, chromosome_position, boundary_position, c
 	return bound_pos
 
 main()
+
